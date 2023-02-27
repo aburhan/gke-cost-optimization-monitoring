@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import time
+from datetime import timedelta, datetime
 import config
 import logging
-import numpy as np
 from google.cloud import bigquery
 from google.cloud import bigquery_storage_v1
 from google.cloud.bigquery_storage_v1 import types
@@ -31,6 +31,14 @@ import math
 # from the samples/snippets directory to generate the metric_record_pb2.py module.
 
 # Fetch GKE metrics - cpu requested cores, cpu limit cores, memory requested bytes, memory limit bytes, count and all workloads with hpa
+# Set the time interval for the query
+DAYS_AGO = 11
+INTERVAL = timedelta(days=DAYS_AGO)
+
+# Construct the time interval for the query
+end_time = datetime.utcnow()
+start_time = end_time - INTERVAL
+
 def get_gke_metrics(metric_name, metric, window):
     # [START get_gke_metrics]
     output = []
@@ -83,7 +91,6 @@ def get_gke_metrics(metric_name, metric, window):
             row.namespace_name = label['namespace_name']
             row.tstamp = time.time()
             points = result.points
-            print(row)
             for point in points:
                 if "cpu" in metric_name:
                     row.points = (int(point.value.double_value * 1000)) if point.value.double_value is not None else 0
@@ -106,34 +113,30 @@ def get_gke_metrics(metric_name, metric, window):
 def get_vpa_recommenation_metrics(metric_name, metric, window):
 
     # [START get_vpa_recommenation_metrics]
-    from google.cloud import monitoring_v3
     client = monitoring_v3.MetricServiceClient()
     project_name = f"projects/{config.PROJECT_ID}"
-    interval = monitoring_v3.TimeInterval()
 
-    now = time.time()
-    seconds = int(now)
-    nanos = int((now - seconds) * 10 ** 9)
-    
-    interval = monitoring_v3.TimeInterval(
-        {
-            "end_time": {"seconds": seconds, "nanos": nanos},
-            "start_time": {"seconds": (seconds - window), "nanos": nanos},
-        }
-    )
+    rec_group_by_fields = [ 'resource.label."location"','resource.label."project_id"','resource.label."cluster_name"','resource.label."controller_name"','resource.label."namespace_name"','resource.label."controller_kind"']
     
     results = client.list_time_series(
         request={
             "name": project_name,
             "filter": f'metric.type = "{metric}" AND resource.label.namespace_name != "kube-system"',
-            "interval": interval,
-            "view": monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
+            'interval': {
+            'start_time': start_time,
+            'end_time': end_time,
+            },
+        'aggregation': {
+            'alignment_period': {'seconds': window},
+            'cross_series_reducer':'REDUCE_MAX',
+            'per_series_aligner': 'ALIGN_MAX',
+            'group_by_fields': rec_group_by_fields
+          },
         }
     )
     output = []
-    
     for result in results:
-        points_array = []
+        label = result.resource.labels
         row = metric_record_flat_pb2.MetricFlatRecord ()
         label = result.resource.labels
         row.location = label['location']
@@ -142,31 +145,59 @@ def get_vpa_recommenation_metrics(metric_name, metric, window):
         row.controller_name = label['controller_name']
         row.controller_type= label['controller_kind']
         row.namespace_name = label['namespace_name']
+        row.metric_name = metric_name
         row.tstamp = time.time()
-        for point in result.points:
-            if((point.value.double_value) != 0):
-                points_array.append(int(point.value.double_value * 1000))
+        points = result.points
+        for point in points:
+            if "memory" in metric_name:
+                row.points = (int(point.value.int64_value/1024/1024)) if point.value.int64_value is not None else 0  
             else:
-                points_array.append(int(point.value.int64_value/1024/1024)) 
-        if "cpu" in metric_name :
-            row.metric_name = "cpu_request_95th_percentile_recommendations"
-            row.points = int(np.percentile(points_array, 95))
+                row.points = (int(point.value.double_value * 1000)) if point.value.double_value is not None else 0
+            break
+        output.append(row.SerializeToString())
+    
+    # Get the 95th percentile for burstable
+    if 'cpu' in metric_name:
+        results = client.list_time_series(
+        request={
+            "name": project_name,
+            "filter": f'metric.type = "{metric}" AND resource.label.namespace_name != "kube-system"',
+            'interval': {
+            'start_time': start_time,
+            'end_time': end_time,
+            },
+        'aggregation': {
+            'alignment_period': {'seconds': 2592000},
+            'cross_series_reducer': 'REDUCE_PERCENTILE_95',
+            'per_series_aligner': 'ALIGN_MEAN',
+            'group_by_fields': rec_group_by_fields
+          },
+        }
+        )
+        for result in results:
+            label = result.resource.labels
+            row = metric_record_flat_pb2.MetricFlatRecord ()
+            label = result.resource.labels
+            row.location = label['location']
+            row.project_id = label['project_id']
+            row.cluster_name = label['cluster_name']
+            row.controller_name = label['controller_name']
+            row.controller_type= label['controller_kind']
+            row.namespace_name = label['namespace_name']
+            row.metric_name = 'cpu_request_95th_percentile_recommendations'
+            row.tstamp = time.time()
+            for point in result.points:
+                if((point.value.double_value) != 0):
+                    row.points = int(point.value.double_value * 1000)
+                else:
+                    row.points = int(point.value.int64_value/1024/1024)
             output.append(row.SerializeToString())
-            row.metric_name = "cpu_request_max_recommendations"
-            row.points = (max(points_array))
-            output.append(row.SerializeToString())
-        else:
-            row.metric_name = metric_name
-            row.points = (max(points_array))
-            output.append(row.SerializeToString())
-        
     return output
     # [END get_vpa_recommenation_metrics]   
  
 
 # Write rows to BigQuery    
 def append_rows_proto(rows):
-
     """Create a write stream, write some sample data, and commit the stream."""
     write_client = bigquery_storage_v1.BigQueryWriteClient()
     parent = write_client.table_path(config.PROJECT_ID, config.BIGQUERY_DATASET, config.BIGQUERY_TABLE)
@@ -228,6 +259,7 @@ def append_rows_proto(rows):
     write_client.batch_commit_write_streams(batch_commit_write_streams_request)
 
     print(f"Writes to stream: '{write_stream.name}' have been committed.")
+    build_recommenation_table()
 
 # Purge all data from metrics table. mql_metrics table is used as a staging table and must be purged to avoid duplicate metrics                
 def purge_raw_metric_data():
@@ -247,8 +279,6 @@ def build_recommenation_table():
     """ Create recommenations table in BigQuery
     """
     client = bigquery.Client()
-
-
     table_id = f'{config.PROJECT_ID}.{config.BIGQUERY_DATASET}.{config.RECOMMENDATION_TABLE}'
     
     update_query = f"""UPDATE `{table_id}`
@@ -266,15 +296,17 @@ def build_recommenation_table():
     query_job.result()  # Wait for the job to complete.
     purge_raw_metric_data()
 
-def run_pipeline():    
+def run_pipeline(): 
+    data = []   
     for metric, query in config.MQL_QUERY.items():
         if query[2] == "gke_metric":
             print(f"Processing GKE system metric {metric}")
-            append_rows_proto(get_gke_metrics(metric, query[0], query[1]))
+            data += get_gke_metrics(metric, query[0], query[1])
         else:
             print(f"Processing VPA recommendation metric {metric}")
-            append_rows_proto(get_vpa_recommenation_metrics(metric, query[0], query[1]))
-    build_recommenation_table()
+            data += get_vpa_recommenation_metrics(metric, query[0], query[1])
+    append_rows_proto(data)   
+    
    
     
 def export_metric_data(event, context):
