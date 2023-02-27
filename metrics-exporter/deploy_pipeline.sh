@@ -31,7 +31,7 @@ gcloud services enable cloudscheduler.googleapis.com
 
 echo "Deploy the Cloud Scheduler job with a schedule to trigger the Cloud Function once a day.."
 gcloud scheduler jobs create pubsub get_metric_mql \
---schedule "* 23 * * *" \
+--schedule "0 23 * * *" \
 --topic $PUBSUB_TOPIC \
 --location $REGION \
 --message-body "Exporting metric..."
