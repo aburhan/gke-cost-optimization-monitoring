@@ -15,7 +15,7 @@
 */
 INSERT 
 INTO
-  `${PROJECT_ID}.${BIGQUERY_DATASET}.${BIGQUERY_VPA_RECOMMENDATION_TABLE}`
+  `[RECOMMENDATION_TABLE]`
     (
 recommendation_timestamp,			
 location,
@@ -58,7 +58,7 @@ WITH
     namespace_name,
     1 AS flag
   FROM
-    `${PROJECT_ID}.${BIGQUERY_DATASET}.${BIGQUERY_MQL_TABLE}`
+    `[METRIC_TABLE]`
   WHERE
     metric_name LIKE '%hpa%' ),
 ###################################################
@@ -80,7 +80,7 @@ WITH
       IF((c.points IS NULL), 0, c.points) AS points,
       LAST_VALUE(c.tstamp) OVER (PARTITION BY c.controller_name, c.project_id, c.cluster_name, c.location ORDER BY c.tstamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS tstamp,
     FROM
-      `${PROJECT_ID}.${BIGQUERY_DATASET}.${BIGQUERY_MQL_TABLE}` AS c
+      `[METRIC_TABLE]` AS c
     LEFT JOIN
       hpa_workloads
     ON
