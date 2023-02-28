@@ -11,14 +11,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import os
+#User variables
+PROJECT_ID = os.getenv("PROJECT_ID", "")
+RECOMMENDATION_WINDOW_SECONDS = os.getenv("REC_WINDOW", 2592000)
+LATEST_WINDOW_SECONDS = os.getenv("METRIC_WINDOW", 300)
 
-PROJECT_ID = "${PROJECT_ID}"
-PUBSUB_TOPIC = "${PUBSUB_TOPIC}"
-BIGQUERY_DATASET = "${BIGQUERY_DATASET}"
-BIGQUERY_TABLE = "${BIGQUERY_MQL_TABLE}"
-RECOMMENDATION_TABLE = "${BIGQUERY_VPA_RECOMMENDATION_TABLE}"
-RECOMMENDATION_WINDOW_SECONDS = 2592000
-LATEST_WINDOW_SECONDS = 60
+PUBSUB_TOPIC = "mql_metric_export"
+BIGQUERY_DATASET = "metric_export"
+BIGQUERY_TABLE = "mql_metrics"
+RECOMMENDATION_TABLE = "vpa_container_recommendations"
+
 
 # IMPORTANT: to guarantee successfully retriving data, please use a time window greater than 5 minutes
 
