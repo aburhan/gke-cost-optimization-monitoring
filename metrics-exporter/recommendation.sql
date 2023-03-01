@@ -135,8 +135,9 @@ SELECT * EXCEPT (cpu_request_95th_percentile_recommendations, cpu_request_max_re
 memory_request_recommendations AS memory_limit_recommendation,
 IF(cpu_qos = "Guaranteed", cpu_request_max_recommendations,  cpu_request_95th_percentile_recommendations )  as cpu_request_recommendations,
 CASE
-  WHEN (cpu_limit_cores = 0  or cpu_requested_cores = 0 ) THEN cpu_request_max_recommendations
-  WHEN (cpu_qos = "Guaranteed" ) THEN cpu_request_max_recommendations
+  WHEN (cpu_qos = "BestEffort") THEN cpu_request_max_recommendations
+  WHEN (cpu_qos = "Guaranteed") THEN cpu_request_max_recommendations
+  WHEN (cpu_qos = "Burstable" AND cpu_limit_cores is null) THEN (cpu_request_recommendations * 2)
   ELSE
     CAST(cpu_request_95th_percentile_recommendations * (cpu_limit_cores/cpu_requested_cores)  AS INT64)
   END

@@ -21,4 +21,4 @@ requests
 rsa
 six
 urllib3
-numpy
+config

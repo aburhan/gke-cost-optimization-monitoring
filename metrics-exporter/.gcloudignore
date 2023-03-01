@@ -1,0 +1,11 @@
+Dockerfile
+/terraform
+README.md
+*.pyc
+*.pyo
+*.pyd
+__pycache__
+.pytest_cache
+config-template.py
+bigquery_recommendation_schema.json
+bigquery_schema.json
